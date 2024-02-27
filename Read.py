@@ -48,13 +48,16 @@ def target_vertax_point(clockwise_point):
     w1 = np.linalg.norm(clockwise_point[0]-clockwise_point[1])
     w2 = np.linalg.norm(clockwise_point[2]-clockwise_point[3])
     w = w1 if w1 > w2 else w2
+
     #计算顶点的高度(取最大高度)
     h1 = np.linalg.norm(clockwise_point[1]-clockwise_point[2])
     h2 = np.linalg.norm(clockwise_point[3]-clockwise_point[0])
     h = h1 if h1 > h2 else h2
+
     #将宽和高转换为整数
     w = int(round(w))
     h = int(round(h))
+
     #计算变换后目标的顶点坐标
     top_left = [0, 0]
     top_right = [w, 0]
@@ -71,20 +74,66 @@ def get_choice(circles):
         y.append(c[1])
     x.sort()
     y.sort()
-    x_step = (x[-1] - x[0])/4
-    y_step = (y[-1] - y[0])/6
+    x_step = int((x[-1] - x[0])/4)
+    y_step = int((y[-1] - y[0])/6)
     pos = (x[0], y[0])
 
-    return pos, int(x_step), int(y_step)
+    #将计算出的结果存放在choices中
+    choices = []
+    for y in range(pos[1], pos[1] + y_step*7, y_step):
+        for x in range(pos[0], pos[0] + x_step*5, x_step):
+            choices.append((x, y))
+
+    return choices, x_step, y_step
+
+def find_target(target, template, size):
+    output = []
+    template = cv2.resize(template, size)
+    theight, twidth = template.shape[:2]
+
+    #执行模板匹配，采用的匹配方式cv2.TM_SQDIFF_NORMED
+    result = cv2.matchTemplate(target,template,cv2.TM_SQDIFF_NORMED)
+    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+
+    #绘制矩形边框，将匹配区域标注出来
+    output.append(min_loc)
+    #cv2.rectangle(target,min_loc,(min_loc[0]+twidth,min_loc[1]+theight),(0,0,225),2)
+    #cv2.imshow('test',target)
+
+    #初始化位置参数
+    temp_loc = min_loc
+    other_loc = min_loc
+    numOfloc = 1
+
+    #第一次筛选----规定匹配阈值，将满足阈值的从result中提取出来
+    threshold = 0.5
+    loc = np.where(result<threshold)
+
+    #遍历提取出来的位置, 将位置偏移小于5个像素的结果舍去
+    for other_loc in zip(*loc[::-1]):
+        if (temp_loc[0]+10<other_loc[0])or(temp_loc[1]+10<other_loc[1]):
+            numOfloc = numOfloc + 1
+            temp_loc = other_loc
+            output.append(other_loc)
+            #cv2.rectangle(target,other_loc,(other_loc[0]+twidth,other_loc[1]+theight),(0,0,225),2)
+    output = sorted(output, key = lambda x:(x[1]))
+    return output
+
+def draw_circles(choices, img):
+    for pos in choices:
+        cv2.circle(img, pos, 10, (0, 0, 255), 2)
+    return img
 
 class AnswerSheet:
     '''答题卡基础类'''
-    def __init__(self, src, persp_img=None, canny_persp_img=None):
+    def __init__(self, src, persp_img=None, canny_persp_img=None, correct_ans=['A', 'B', 'C', 'D', 'E', 'E']):
         self.src = src
         self.persp_img = persp_img
         self.canny_persp_img = canny_persp_img
+        self.target_img = cv2.imread('target.png')
+        self.correct_ans = correct_ans
 
-    def PerspTrans(self):
+    def PerspTrans(self, ShowProgress=0):
         '''将读取的图片转换到正视角'''
         squares, self.src = find_squares(self.src)
         dots = []
@@ -99,33 +148,49 @@ class AnswerSheet:
         matrix = cv2.getPerspectiveTransform(dots, dst_dots)
         #计算透视变换后的图片
         self.persp_img = cv2.warpPerspective(self.src, matrix, (int(dst_dots[2][0]), int(dst_dots[2][1])))
-        cv2.imshow('persp_img', self.persp_img)
+
+        if ShowProgress:
+            cv2.imshow('persp_img', self.persp_img)
         
         #cv2.drawContours(self.src, squares, -1, (0, 0, 255), 2 )
     
-    def ReadAns(self):
+    def ReadAns(self, ShowProgress=0):
+        '从透视变换后的图像中读取答案并批改'
         self.canny_persp_img = cv2.Canny(self.persp_img, 30, 100)
 
+        #做闭运算，使图中的圆更容易被检测
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(3, 3))
         self.canny_persp_img = cv2.morphologyEx(self.canny_persp_img, cv2.MORPH_CLOSE, kernel,iterations=1) 
 
-        circles = cv2.HoughCircles(self.canny_persp_img, cv2.HOUGH_GRADIENT, 1, 20, param1=100, param2=25, minRadius=0, maxRadius=50)
+        #进行霍夫圆检测
+        circles = cv2.HoughCircles(self.canny_persp_img, cv2.HOUGH_GRADIENT, 1, 20, param1=100, param2=30, minRadius=0, maxRadius=50)
         circles = np.uint16(np.around(circles))  # 取整
         self.canny_persp_img = cv2.cvtColor(self.canny_persp_img, cv2.COLOR_GRAY2BGR)
-        pos, x_step, y_step = get_choice(circles)
-        for x in range(pos[0], pos[0] + x_step*5, x_step):
-            for y in range(pos[1], pos[1] + y_step*7, y_step):
-                cv2.circle(self.canny_persp_img, (x, y), 10, (0, 0, 255), 2)
-            print(x)
+
+        #通过获取的圆的数据，计算出每一个选项的大致位置
+        positions, x_step, y_step = get_choice(circles)
+        targets = find_target(self.persp_img, self.target_img, (x_step, y_step))
+
+        answers = []
+        alphabet = ['A', 'B', 'C', 'D', 'E']
+        for i in range(7):
+            for j in range(5):
+                if targets[i][0] < positions[i*5 + j][0]:
+                    answers.append(alphabet[j])
+                    break
+
+        print(answers)
+        
+        if ShowProgress:
+            self.canny_persp_img = draw_circles(positions, self.canny_persp_img)
+            cv2.imshow('progress2', self.canny_persp_img)
 
 
 img = cv2.imread('/Users/joecos_kun/Desktop/test.jpg')
 test = AnswerSheet(img)
-cv2.imshow('src', img)
 
-test.PerspTrans()
-test.ReadAns()
-cv2.imshow('test', test.canny_persp_img)
+test.PerspTrans(ShowProgress=0)
+test.ReadAns(ShowProgress=1)
 
 cv2.waitKey(0)
 cv2.destroyAllWindows()
