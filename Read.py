@@ -92,13 +92,12 @@ def find_target(target, template, size):
     theight, twidth = template.shape[:2]
 
     #执行模板匹配，采用的匹配方式cv2.TM_SQDIFF_NORMED
-    result = cv2.matchTemplate(target,template,cv2.TM_SQDIFF_NORMED)
+    result = cv2.matchTemplate(target, template, cv2.TM_SQDIFF_NORMED)
     min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
 
     #绘制矩形边框，将匹配区域标注出来
     output.append(min_loc)
-    #cv2.rectangle(target,min_loc,(min_loc[0]+twidth,min_loc[1]+theight),(0,0,225),2)
-    #cv2.imshow('test',target)
+    cv2.rectangle(target, min_loc, (min_loc[0]+twidth, min_loc[1]+theight), (0,0,225), 2)
 
     #初始化位置参数
     temp_loc = min_loc
@@ -107,17 +106,17 @@ def find_target(target, template, size):
 
     #第一次筛选----规定匹配阈值，将满足阈值的从result中提取出来
     threshold = 0.5
-    loc = np.where(result<threshold)
+    loc = np.where(result < threshold)
 
     #遍历提取出来的位置, 将位置偏移小于5个像素的结果舍去
     for other_loc in zip(*loc[::-1]):
-        if (temp_loc[0]+10<other_loc[0])or(temp_loc[1]+10<other_loc[1]):
+        if (temp_loc[0]+20<other_loc[0])or(temp_loc[1]+20<other_loc[1]):
             numOfloc = numOfloc + 1
             temp_loc = other_loc
             output.append(other_loc)
-            #cv2.rectangle(target,other_loc,(other_loc[0]+twidth,other_loc[1]+theight),(0,0,225),2)
+            cv2.rectangle(target,other_loc, (other_loc[0]+twidth,other_loc[1]+theight), (0,0,225), 2)
     output = sorted(output, key = lambda x:(x[1]))
-    return output
+    return output, target
 
 def draw_circles(choices, img):
     for pos in choices:
@@ -126,7 +125,7 @@ def draw_circles(choices, img):
 
 class AnswerSheet:
     '''答题卡基础类'''
-    def __init__(self, src, persp_img=None, canny_persp_img=None, correct_ans=['A', 'B', 'C', 'D', 'E', 'E']):
+    def __init__(self, src, persp_img=None, canny_persp_img=None, correct_ans=['A', 'B', 'C', 'D', 'E', 'A', 'B']):
         self.src = src
         self.persp_img = persp_img
         self.canny_persp_img = canny_persp_img
@@ -169,8 +168,21 @@ class AnswerSheet:
 
         #通过获取的圆的数据，计算出每一个选项的大致位置
         positions, x_step, y_step = get_choice(circles)
-        targets = find_target(self.persp_img, self.target_img, (x_step, y_step))
+        targets, self.persp_img = find_target(self.persp_img, self.target_img, (x_step, y_step))
 
+        if ShowProgress:
+            self.canny_persp_img = draw_circles(positions, self.canny_persp_img)
+            cv2.imshow('progress2', self.canny_persp_img)
+            cv2.imshow('progress3', self.persp_img)
+
+        #如果找到的目标不足7个，则终止运行
+        if len(targets) < 7:
+            print('only found ' + str(len(targets)) + ' targets')
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+            exit()
+
+        #通过匹配到的涂黑的位置，计算出选择的选项
         answers = []
         alphabet = ['A', 'B', 'C', 'D', 'E']
         for i in range(7):
@@ -178,20 +190,33 @@ class AnswerSheet:
                 if targets[i][0] < positions[i*5 + j][0]:
                     answers.append(alphabet[j])
                     break
-
         print(answers)
+
+        #将不正确的题号储存，并在题号附近标注这题的对错
+        incorrect = []
+        for i in range(7):
+            if answers[i] != self.correct_ans[i]:
+                incorrect.append(i)
+                cv2.putText(self.persp_img, 'False', (positions[0][0]-x_step*3, positions[5*i][1]), cv2.FONT_HERSHEY_COMPLEX, 0.4, (0, 0, 255), 1)
+            else:
+                cv2.putText(self.persp_img, 'True', (positions[0][0]-x_step*3, positions[5*i][1]), cv2.FONT_HERSHEY_COMPLEX, 0.4, (0, 0, 255), 1)
         
-        if ShowProgress:
-            self.canny_persp_img = draw_circles(positions, self.canny_persp_img)
-            cv2.imshow('progress2', self.canny_persp_img)
+        #将批改数据打印在self.persp_img中
+        cv2.putText(self.persp_img, 'correct answer:' + str(self.correct_ans), (10, 10), cv2.FONT_HERSHEY_COMPLEX, 0.4, (0, 0, 255), 1)
+        cv2.putText(self.persp_img, 'your answer:' + str(answers), (10, 25), cv2.FONT_HERSHEY_COMPLEX, 0.4, (0, 0, 255), 1)
+        cv2.putText(self.persp_img, 'Accuracy:' + str(7-len(incorrect)) + '/7', (10, 40), cv2.FONT_HERSHEY_COMPLEX, 0.4, (0, 0, 255), 1)
+        cv2.imshow('test', self.persp_img)
 
+def main():
+    img = cv2.imread('sheet1.jpg')
+    test = AnswerSheet(img)
 
-img = cv2.imread('/Users/joecos_kun/Desktop/test.jpg')
-test = AnswerSheet(img)
+    test.PerspTrans(ShowProgress=0)
+    test.ReadAns(ShowProgress=0)
 
-test.PerspTrans(ShowProgress=0)
-test.ReadAns(ShowProgress=1)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
-cv2.waitKey(0)
-cv2.destroyAllWindows()
+if __name__ == '__main__':
+    main()
 
