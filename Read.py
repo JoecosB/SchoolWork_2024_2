@@ -89,6 +89,7 @@ def get_choice(circles):
 def find_target(target, template, size):
     output = []
     template = cv2.resize(template, size)
+    cv2.imshow('template', template)
     theight, twidth = template.shape[:2]
 
     #执行模板匹配，采用的匹配方式cv2.TM_SQDIFF_NORMED
@@ -105,7 +106,7 @@ def find_target(target, template, size):
     numOfloc = 1
 
     #第一次筛选----规定匹配阈值，将满足阈值的从result中提取出来
-    threshold = 0.5
+    threshold = 0.47
     loc = np.where(result < threshold)
 
     #遍历提取出来的位置, 将位置偏移小于5个像素的结果舍去
@@ -168,7 +169,7 @@ class AnswerSheet:
 
         #通过获取的圆的数据，计算出每一个选项的大致位置
         positions, x_step, y_step = get_choice(circles)
-        targets, self.persp_img = find_target(self.persp_img, self.target_img, (x_step, y_step))
+        targets, self.persp_img = find_target(self.persp_img, self.target_img, (int(x_step/1.1), int(y_step/1.1)))
 
         if ShowProgress:
             self.canny_persp_img = draw_circles(positions, self.canny_persp_img)
@@ -212,7 +213,7 @@ def main():
     test = AnswerSheet(img)
 
     test.PerspTrans(ShowProgress=0)
-    test.ReadAns(ShowProgress=0)
+    test.ReadAns(ShowProgress=1)
 
     cv2.waitKey(0)
     cv2.destroyAllWindows()
