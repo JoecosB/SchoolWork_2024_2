@@ -65,6 +65,46 @@ def target_vertax_point(clockwise_point):
     bottom_left = [0, h]
     return np.array([top_left, top_right, bottom_right, bottom_left], dtype = np.float32)
 
+def py_nms(dets, thresh):
+    """Pure Python NMS baseline."""
+    #x1、y1、x2、y2、以及score赋值
+    # （x1、y1）（x2、y2）为box的左上和右下角标
+    x1 = dets[:, 0]
+    y1 = dets[:, 1]
+    x2 = dets[:, 2]
+    y2 = dets[:, 3]
+    scores = dets[:, 4]
+ 
+    #每一个候选框的面积
+    areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+    #order是按照score降序排序的
+    order = scores.argsort()[::-1]
+    # print("order:",order)
+ 
+    keep = []
+    while order.size > 0:
+        i = order[0]
+        keep.append(i)
+        #计算当前概率最大矩形框与其他矩形框的相交框的坐标，会用到numpy的broadcast机制，得到的是向量
+        xx1 = np.maximum(x1[i], x1[order[1:]])
+        yy1 = np.maximum(y1[i], y1[order[1:]])
+        xx2 = np.minimum(x2[i], x2[order[1:]])
+        yy2 = np.minimum(y2[i], y2[order[1:]])
+ 
+        #计算相交框的面积,注意矩形框不相交时w或h算出来会是负数，用0代替
+        w = np.maximum(0.0, xx2 - xx1 + 1)
+        h = np.maximum(0.0, yy2 - yy1 + 1)
+        inter = w * h
+        #计算重叠度IOU：重叠面积/（面积1+面积2-重叠面积）
+        ovr = inter / (areas[i] + areas[order[1:]] - inter)
+ 
+        #找到重叠度不高于阈值的矩形框索引
+        inds = np.where(ovr <= thresh)[0]
+        # print("inds:",inds)
+        #将order序列更新，由于前面得到的矩形框索引要比矩形框在原order序列中的索引小1，所以要把这个1加回来
+        order = order[inds + 1]
+    return keep
+
 def get_choice(circles):
     '''通过算法得出所有选项的位置'''
     x = []
@@ -89,7 +129,7 @@ def get_choice(circles):
 def find_target(target, template, size):
     output = []
     template = cv2.resize(template, size)
-    cv2.imshow('template', template)
+    #cv2.imshow('template', template)
     theight, twidth = template.shape[:2]
 
     #执行模板匹配，采用的匹配方式cv2.TM_SQDIFF_NORMED
@@ -106,7 +146,7 @@ def find_target(target, template, size):
     numOfloc = 1
 
     #第一次筛选----规定匹配阈值，将满足阈值的从result中提取出来
-    threshold = 0.47
+    threshold = 0.4
     loc = np.where(result < threshold)
 
     #遍历提取出来的位置, 将位置偏移小于5个像素的结果舍去
@@ -116,7 +156,10 @@ def find_target(target, template, size):
             temp_loc = other_loc
             output.append(other_loc)
             cv2.rectangle(target,other_loc, (other_loc[0]+twidth,other_loc[1]+theight), (0,0,225), 2)
+    print(output)
+    output = py_nms(output, 0.3)
     output = sorted(output, key = lambda x:(x[1]))
+    print(output)
     return output, target
 
 def draw_circles(choices, img):
@@ -126,8 +169,9 @@ def draw_circles(choices, img):
 
 class AnswerSheet:
     '''答题卡基础类'''
-    def __init__(self, src, persp_img=None, canny_persp_img=None, correct_ans=['A', 'B', 'C', 'D', 'E', 'A', 'B']):
+    def __init__(self, src, sheet_name, persp_img=None, canny_persp_img=None, correct_ans=['A', 'B', 'C', 'D', 'E', 'A', 'B']):
         self.src = src
+        self.sheet_name = sheet_name
         self.persp_img = persp_img
         self.canny_persp_img = canny_persp_img
         self.target_img = cv2.imread('target.png')
@@ -135,19 +179,22 @@ class AnswerSheet:
 
     def PerspTrans(self, ShowProgress=0):
         '''将读取的图片转换到正视角'''
+
+        #找到图片中的凸四边形轮廓，获取其四个顶点并按顺时针正确排列
         squares, self.src = find_squares(self.src)
         dots = []
         for lines in squares:
             for dot in lines:
                 dots.append(dot)
-
         dots = clockwise(dots)
         dst_dots = target_vertax_point(dots)
 
         #计算变换矩阵
         matrix = cv2.getPerspectiveTransform(dots, dst_dots)
-        #计算透视变换后的图片
+
+        #计算透视变换后的图片，并修改为合适的大小
         self.persp_img = cv2.warpPerspective(self.src, matrix, (int(dst_dots[2][0]), int(dst_dots[2][1])))
+        self.persp_img = cv2.resize(self.persp_img, (int(self.persp_img.shape[1] * (435/self.persp_img.shape[0])), 435))
 
         if ShowProgress:
             cv2.imshow('persp_img', self.persp_img)
@@ -169,16 +216,16 @@ class AnswerSheet:
 
         #通过获取的圆的数据，计算出每一个选项的大致位置
         positions, x_step, y_step = get_choice(circles)
-        targets, self.persp_img = find_target(self.persp_img, self.target_img, (int(x_step/1.1), int(y_step/1.1)))
+        targets, self.persp_img = find_target(self.persp_img, self.target_img, (int(x_step/1.2), int(y_step/1.2)))
 
         if ShowProgress:
             self.canny_persp_img = draw_circles(positions, self.canny_persp_img)
             cv2.imshow('progress2', self.canny_persp_img)
             cv2.imshow('progress3', self.persp_img)
 
-        #如果找到的目标不足7个，则终止运行
-        if len(targets) < 7:
-            print('only found ' + str(len(targets)) + ' targets')
+        #如果找到的目标不是7个，则终止运行
+        if len(targets) != 7:
+            print('found ' + str(len(targets)) + ' targets')
             cv2.waitKey(0)
             cv2.destroyAllWindows()
             exit()
@@ -206,13 +253,13 @@ class AnswerSheet:
         cv2.putText(self.persp_img, 'correct answer:' + str(self.correct_ans), (10, 10), cv2.FONT_HERSHEY_COMPLEX, 0.4, (0, 0, 255), 1)
         cv2.putText(self.persp_img, 'your answer:' + str(answers), (10, 25), cv2.FONT_HERSHEY_COMPLEX, 0.4, (0, 0, 255), 1)
         cv2.putText(self.persp_img, 'Accuracy:' + str(7-len(incorrect)) + '/7', (10, 40), cv2.FONT_HERSHEY_COMPLEX, 0.4, (0, 0, 255), 1)
-        cv2.imshow('test', self.persp_img)
+        cv2.imshow(self.sheet_name, self.persp_img)
 
 def main():
-    img = cv2.imread('sheet1.jpg')
-    test = AnswerSheet(img)
+    img = cv2.imread('./sheets/sheet4.jpg')
+    test = AnswerSheet(img, 'test')
 
-    test.PerspTrans(ShowProgress=0)
+    test.PerspTrans(ShowProgress=1)
     test.ReadAns(ShowProgress=1)
 
     cv2.waitKey(0)
