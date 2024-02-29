@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+from matplotlib import pyplot as plt
 
 def angle_cos(p0, p1, p2):
     d1, d2 = (p0-p1).astype('float'), (p2-p1).astype('float')
@@ -65,46 +66,6 @@ def target_vertax_point(clockwise_point):
     bottom_left = [0, h]
     return np.array([top_left, top_right, bottom_right, bottom_left], dtype = np.float32)
 
-def py_nms(dets, thresh):
-    """Pure Python NMS baseline."""
-    #x1、y1、x2、y2、以及score赋值
-    # （x1、y1）（x2、y2）为box的左上和右下角标
-    x1 = dets[:, 0]
-    y1 = dets[:, 1]
-    x2 = dets[:, 2]
-    y2 = dets[:, 3]
-    scores = dets[:, 4]
- 
-    #每一个候选框的面积
-    areas = (x2 - x1 + 1) * (y2 - y1 + 1)
-    #order是按照score降序排序的
-    order = scores.argsort()[::-1]
-    # print("order:",order)
- 
-    keep = []
-    while order.size > 0:
-        i = order[0]
-        keep.append(i)
-        #计算当前概率最大矩形框与其他矩形框的相交框的坐标，会用到numpy的broadcast机制，得到的是向量
-        xx1 = np.maximum(x1[i], x1[order[1:]])
-        yy1 = np.maximum(y1[i], y1[order[1:]])
-        xx2 = np.minimum(x2[i], x2[order[1:]])
-        yy2 = np.minimum(y2[i], y2[order[1:]])
- 
-        #计算相交框的面积,注意矩形框不相交时w或h算出来会是负数，用0代替
-        w = np.maximum(0.0, xx2 - xx1 + 1)
-        h = np.maximum(0.0, yy2 - yy1 + 1)
-        inter = w * h
-        #计算重叠度IOU：重叠面积/（面积1+面积2-重叠面积）
-        ovr = inter / (areas[i] + areas[order[1:]] - inter)
- 
-        #找到重叠度不高于阈值的矩形框索引
-        inds = np.where(ovr <= thresh)[0]
-        # print("inds:",inds)
-        #将order序列更新，由于前面得到的矩形框索引要比矩形框在原order序列中的索引小1，所以要把这个1加回来
-        order = order[inds + 1]
-    return keep
-
 def get_choice(circles):
     '''通过算法得出所有选项的位置'''
     x = []
@@ -138,7 +99,6 @@ def find_target(target, template, size):
 
     #绘制矩形边框，将匹配区域标注出来
     output.append(min_loc)
-    cv2.rectangle(target, min_loc, (min_loc[0]+twidth, min_loc[1]+theight), (0,0,225), 2)
 
     #初始化位置参数
     temp_loc = min_loc
@@ -149,23 +109,36 @@ def find_target(target, template, size):
     threshold = 0.4
     loc = np.where(result < threshold)
 
-    #遍历提取出来的位置, 将位置偏移小于5个像素的结果舍去
+    #遍历提取出来的位置, 初次将位置偏移小于20个像素的结果舍去
     for other_loc in zip(*loc[::-1]):
         if (temp_loc[0]+20<other_loc[0])or(temp_loc[1]+20<other_loc[1]):
             numOfloc = numOfloc + 1
             temp_loc = other_loc
             output.append(other_loc)
-            cv2.rectangle(target,other_loc, (other_loc[0]+twidth,other_loc[1]+theight), (0,0,225), 2)
-    print(output)
-    output = py_nms(output, 0.3)
+
+    #再次舍去位置偏移小于10的结果，并按y轴排序
+    output = kick(output)
     output = sorted(output, key = lambda x:(x[1]))
-    print(output)
+    for pos in output:
+        cv2.rectangle(target,pos, (pos[0]+twidth,pos[1]+theight), (0,0,225), 2)
     return output, target
 
 def draw_circles(choices, img):
     for pos in choices:
         cv2.circle(img, pos, 10, (0, 0, 255), 2)
     return img
+
+def kick(targets):
+    output = []
+    for i in range(len(targets)-1):
+        distance = []
+        for j in range(i+1, len(targets)):
+            distance.append(abs(targets[i][0] - targets[j][0]) + abs(targets[i][1] - targets[j][1]))
+        distance.sort()
+        if distance.pop(0)> 10:
+            output.append(targets[i])
+    output.append(targets[-1])
+    return output
 
 class AnswerSheet:
     '''答题卡基础类'''
@@ -174,7 +147,7 @@ class AnswerSheet:
         self.sheet_name = sheet_name
         self.persp_img = persp_img
         self.canny_persp_img = canny_persp_img
-        self.target_img = cv2.imread('target.png')
+        self.target_img = cv2.imread('target.jpg')
         self.correct_ans = correct_ans
 
     def PerspTrans(self, ShowProgress=0):
@@ -210,7 +183,7 @@ class AnswerSheet:
         self.canny_persp_img = cv2.morphologyEx(self.canny_persp_img, cv2.MORPH_CLOSE, kernel,iterations=1) 
 
         #进行霍夫圆检测
-        circles = cv2.HoughCircles(self.canny_persp_img, cv2.HOUGH_GRADIENT, 1, 20, param1=100, param2=30, minRadius=0, maxRadius=50)
+        circles = cv2.HoughCircles(self.canny_persp_img, cv2.HOUGH_GRADIENT, 1, 20, param1=150, param2=30, minRadius=0, maxRadius=50)
         circles = np.uint16(np.around(circles))  # 取整
         self.canny_persp_img = cv2.cvtColor(self.canny_persp_img, cv2.COLOR_GRAY2BGR)
 
@@ -238,7 +211,7 @@ class AnswerSheet:
                 if targets[i][0] < positions[i*5 + j][0]:
                     answers.append(alphabet[j])
                     break
-        print(answers)
+        #print(answers)
 
         #将不正确的题号储存，并在题号附近标注这题的对错
         incorrect = []
@@ -253,18 +226,39 @@ class AnswerSheet:
         cv2.putText(self.persp_img, 'correct answer:' + str(self.correct_ans), (10, 10), cv2.FONT_HERSHEY_COMPLEX, 0.4, (0, 0, 255), 1)
         cv2.putText(self.persp_img, 'your answer:' + str(answers), (10, 25), cv2.FONT_HERSHEY_COMPLEX, 0.4, (0, 0, 255), 1)
         cv2.putText(self.persp_img, 'Accuracy:' + str(7-len(incorrect)) + '/7', (10, 40), cv2.FONT_HERSHEY_COMPLEX, 0.4, (0, 0, 255), 1)
-        cv2.imshow(self.sheet_name, self.persp_img)
+        #cv2.imshow(self.sheet_name, self.persp_img)
 
 def main():
-    img = cv2.imread('./sheets/sheet4.jpg')
-    test = AnswerSheet(img, 'test')
+    for i in range(3):
+        #读取图片
+        img = cv2.imread('./sheets/sheet' + str(i+1) + '.jpg')
+        sheet = AnswerSheet(img, 'sheet-' + str(i))
 
-    test.PerspTrans(ShowProgress=1)
-    test.ReadAns(ShowProgress=1)
+        #对答题卡进行读取和批改
+        sheet.PerspTrans(ShowProgress=0)
+        sheet.ReadAns(ShowProgress=0)
 
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+        #转换图片格式并用matplotlib展示
+        pic1= cv2.cvtColor(sheet.src, cv2.COLOR_BGR2RGB)
+        pic2= cv2.cvtColor(sheet.persp_img, cv2.COLOR_BGR2RGB)
+        fig = plt.figure(figsize=(10, 5))
+        fig.canvas.manager.set_window_title('Close this window to continue.')
+
+        # 在第一个子图中展示第一张图片
+        plt.subplot(1, 2, 1)
+        plt.imshow(pic1)
+        plt.title('Original sheet')
+        plt.axis('off')
+
+        # 在第二个子图中展示第二张图片
+        plt.subplot(1, 2, 2)
+        plt.imshow(pic2)
+        plt.title('Marked sheet')
+        plt.axis('off')
+        
+        plt.show()
+        #cv2.waitKey(0)
+        #cv2.destroyAllWindows()
 
 if __name__ == '__main__':
     main()
-
