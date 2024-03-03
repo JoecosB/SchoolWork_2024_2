@@ -24,10 +24,12 @@ if err:
 
 
 def angle_cos(p0, p1, p2):
+    '''计算cos值'''
     d1, d2 = (p0-p1).astype('float'), (p2-p1).astype('float')
     return abs( np.dot(d1, d2) / np.sqrt( np.dot(d1, d1)*np.dot(d2, d2) ) )
 
 def find_squares(img):
+    '''找到图片中的矩形轮廓'''
     squares = []
     img = cv2.GaussianBlur(img, (3, 3), 0)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -66,6 +68,7 @@ def clockwise(pts):
     return np.array(np.roll(res,6).tolist(), dtype=np.float32)
 
 def target_vertax_point(clockwise_point):
+    '''计算透视变换后的点的坐标'''
     #计算顶点的宽度(取最大宽度)
     w1 = np.linalg.norm(clockwise_point[0]-clockwise_point[1])
     w2 = np.linalg.norm(clockwise_point[2]-clockwise_point[3])
@@ -109,6 +112,7 @@ def get_choice(circles):
     return choices, x_step, y_step
 
 def find_target(target, template, size):
+    '''对填涂选项进行模板匹配和结果筛选'''
     output = []
     template = cv2.resize(template, size)
     #cv2.imshow('template', template)
@@ -145,11 +149,13 @@ def find_target(target, template, size):
     return output, target
 
 def draw_circles(choices, img):
+    '''一次性画很多圆'''
     for pos in choices:
         cv2.circle(img, pos, 10, (0, 0, 255), 2)
     return img
 
 def kick(targets):
+    '''筛除重复结果'''
     output = []
     for i in range(len(targets)-1):
         distance = []
