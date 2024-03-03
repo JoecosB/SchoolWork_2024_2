@@ -1,6 +1,27 @@
-import cv2
-import numpy as np
-from matplotlib import pyplot as plt
+err = 0
+try:
+    import cv2
+except ModuleNotFoundError:
+    err = 1
+    print("Module opencv-python needed, but not found.")
+try:
+    import numpy as np
+except ModuleNotFoundError:
+    err = 1
+    print("Module numpy needed, but not found.")
+try:
+    from matplotlib import pyplot as plt
+except ModuleNotFoundError:
+    err = 1
+    print("Module matplotlib needed, but not found.")
+try:
+    open("./sheets/sheet1.jpg")
+except FileNotFoundError:
+    err = 1
+    print("No sheet detected under ./sheets directory, or wrongly named.")
+if err:
+    exit()
+
 
 def angle_cos(p0, p1, p2):
     d1, d2 = (p0-p1).astype('float'), (p2-p1).astype('float')
