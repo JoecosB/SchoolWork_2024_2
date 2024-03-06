@@ -225,7 +225,7 @@ class AnswerSheet:
 
         #如果找到的目标不是7个，则终止运行
         if len(targets) != 7:
-            print('found ' + str(len(targets)) + ' targets')
+            print(f'found {len(targets)} targets.')
             cv2.waitKey(0)
             cv2.destroyAllWindows()
             exit()
@@ -258,8 +258,8 @@ class AnswerSheet:
 def main():
     for i in range(3):
         #读取图片
-        img = cv2.imread('./sheets/sheet' + str(i+1) + '.jpg')
-        sheet = AnswerSheet(img, 'sheet-' + str(i))
+        img = cv2.imread(f'./sheets/sheet{str(i+1)}.jpg')
+        sheet = AnswerSheet(img, f'sheet-{str(i)}')
 
         #对答题卡进行读取和批改
         sheet.PerspTrans(ShowProgress=0)
