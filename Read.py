@@ -50,6 +50,7 @@ def find_squares(img):
             if True:
                 index = index + 1
                 squares.append(cnt)
+    print(squares)
     return squares, img
 
 def clockwise(pts):
