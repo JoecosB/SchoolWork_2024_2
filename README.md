@@ -1,5 +1,5 @@
 # SchoolWork_2024_2
- School's machine vision stuff. I tried to use object-oriented method to do the job, but the outcome doesn't look good for I may used it in a wrong way. Though a failure it is, i still learned somrthing about the method, which i will perform better next time.
+ School's machine vision stuff.
  
 ## Intro
   This project provides an automated tool for processing and grading multiple-choice answer sheets. It utilizes OpenCV, NumPy, and Matplotlib to detect answers, compare them against a provided answer key, and generate marked copies of the sheets with grading insights. The tool handles image preprocessing, contour detection for sheet alignment, answer detection, and grading.
