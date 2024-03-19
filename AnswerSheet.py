@@ -55,20 +55,18 @@ class AnswerSheet:
         bin = cv2.Canny(gray, 30, 100, apertureSize=3)    
         contours, _hierarchy = cv2.findContours(bin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         index = 0
+
         # 轮廓遍历
         for cnt in contours:
-            cnt_len = cv2.arcLength(cnt, True) # 计算轮廓周长
-            cnt = cv2.approxPolyDP(cnt, 0.02*cnt_len, True) # 多边形逼近
+
+            # 计算轮廓周长，并用多边形逼近
+            cnt_len = cv2.arcLength(cnt, True)
+            cnt = cv2.approxPolyDP(cnt, 0.02*cnt_len, True)
+
             # 条件判断逼近边的数量是否为4，轮廓面积是否大于1000，检测轮廓是否为凸的
-            if len(cnt) == 4 and cv2.contourArea(cnt) > 1000 and cv2.isContourConvex(cnt):
-                M = cv2.moments(cnt) # 计算轮廓的矩
-                cx = int(M['m10']/M['m00'])
-                cy = int(M['m01']/M['m00'])# 轮廓重心
-                
+            if len(cnt) == 4 and cv2.contourArea(cnt) > 1000 and cv2.isContourConvex(cnt):                
                 cnt = cnt.reshape(-1, 2)
-                if True:
-                    index = index + 1
-                    squares.append(cnt)
+                squares.append(cnt)
         return squares, img
 
 
@@ -92,6 +90,7 @@ class AnswerSheet:
     @staticmethod
     def target_vertax_point(clockwise_point):
         '''计算透视变换后的点的坐标'''
+        
         # 计算顶点的宽度(取最大宽度)
         w1 = np.linalg.norm(clockwise_point[0]-clockwise_point[1])
         w2 = np.linalg.norm(clockwise_point[2]-clockwise_point[3])
